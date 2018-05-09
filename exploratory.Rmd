@@ -1,0 +1,123 @@
+---
+title: "Exploring SportsCode XMLs"
+author: "James Rogol"
+date: "`r Sys.time()`"
+output: html_document
+---
+
+## Loading data
+We'll use the `tidyverse` and `xml2` packages for parsing the XML. A dummy XML was exported from SportsCode using `File > Export > Sportstec XML...`
+
+```{r ingest, message=FALSE, warning=FALSE}
+library(tidyverse)
+library(xml2)
+
+xml_file <- "test_data/exported.xml"
+
+xml <- xml2::read_xml(xml_file)
+```
+
+## Structure
+### <ALL_INSTANCES>
+There are 2 items in the resulting XML list `<ALL_INSTANCES>` and `<ROWS>`. The first contains the metadata for each instance in the timeline. For simplicity's sake, we'll examine a single instance, using the XPATH `.//instance` (all nodes below the current one named "instance").
+```{r all_instances}
+xml_structure(xml_find_first(xml,".//instance"))
+```
+This consists of:
+
+  * `instance`: The parent node for the following nodes.
+  * `ID`: a unique identifier for each instances, assigned chronologically
+  * `start`: start time of the instance, in seconds. `0` is the start of the timeline.
+  * `end`: end time of the instance, in seconds.
+  * `code`: The name of the row in SportsCode
+  * `label`: XML parent node for individuals label. Multiple `label` nodes can exist for a given instance.
+    * `group`: name of a label group, if it exists
+    * `text`: the label's name.
+
+All nodes contain text.
+
+###<ROWS>
+As `<ROWS>` is fairly short, we can look at the entire structure here.
+
+```{r rows}
+xml_structure(xml_find_first(xml,".//ROWS"))
+```
+
+  * `<row>`: Parent node for each row, similar to `<instance>`
+  * `<code>`: The name of a row
+  * `<R>`, `<B>`, `<G>`: contain RGB values for the color of the row, on a scale of 0-100.
+
+## Digging into `<ALL_INSTANCES>`
+We're not so much concerned with the data in `<ROWS>`, as that's more pertinent when re-importing data into SportsCode. As `<code>` nodes exist in `<ROWS>`, we'll extract `<ALL_INSTANCES>` to make our lives easier.[^1]
+```{r}
+instances <- xml %>% xml_find_first( "./ALL_INSTANCES")
+```
+
+### Basic Information
+Extracting the basic information should be pretty straightforward. This includes everything outside of the `<label>` nodes, as there can be multiple occurrences, including some within the same named `group`.
+
+As all of the nodes are text fields, `xml2::xml_text()` extracts the values, returning a vector. We can then cast the numeric values to the appropriate type.
+```{r}
+instances %>% xml_find_all(".//ID") %>% xml_text() %>% as.integer()
+```
+```{r}
+instances %>% xml_find_all(".//code") %>% xml_text()
+```
+```{r}
+instances %>% xml_find_all(".//start") %>% xml_text() %>% as.double()
+```
+```{r}
+instances %>% xml_find_all(".//end") %>% xml_text() %>% as.double()
+```
+
+Hadley Wickham states that any time a process is performed more than thrice, create a function. We'll do just that, borrowing from Bob Rudis' [snippet](https://rpubs.com/hrbrmstr/xml2power).
+
+```{r xtrct}
+xtrct <- function(doc, name) {
+  xml_find_all(doc, paste0(".//",name)) %>%
+    xml_text() %>%
+    trimws() %>% 
+    list() %>% 
+    set_names(name)
+  }
+```
+`xtrct` takes two arguments: `doc`, the the XML to parse; and `name`, the name of the target node (as a string). The function then automatically creates the XPATH, concatenating `.//` and `name`. As above, all the nodes are found, and their text values parsed, trimming any white space. This vector is then turned into a named list, using `name`.
+
+```{r}
+xtrct(instances,"code")
+```
+
+We can then iterate over a list of the "basic" variables, iterating over it, and creating a nice little tibble.[^2] We can then perform type casting using `dplyr::mutate_at`.
+```{r}
+basic <- c("ID","code","start","end")
+
+basic_df <- basic %>% map_dfc(~xtrct(instances,.x)) %>%
+  mutate_at(c("start","end"), as.double) %>% 
+  mutate_at("ID",as.integer)
+  
+basic_df
+```
+
+We can also introduce a `duration` column by subtracting `start` from `end`:
+```{r}
+basic_df %>% mutate(duration = end-start)
+```
+
+### Labels and Groups
+
+To Do!
+
+## Overlap
+
+SportsCode features the `overlap(rowA,rowB)` function, which returns all instances in either `rowA` or `rowB` which overlap at any point in time. This query can be refined to show only instances from `rowA`:
+```{r eval = FALSE}
+overlap(rowA,rowB) and rowA
+```
+
+It would be nice to introduce this functionality to SportsCode.
+
+
+
+## Footnotes
+[^1]: Using the XPATH selector `.//code` looks for all child nodes, irrespective of the current branch. As such, it would locate nodes in both `<ROWS>` and `<ALL_INSTANCES>`. Furthermore, `./code` will only look in the current branch, necessitating us to navigate to `<ALL_INSTANCES>` anyway.
+[^2]: `xtrct` generates lists, which will become the columns. `map_dfc` creates the tibble column-wise, as opposed to row-wise.
