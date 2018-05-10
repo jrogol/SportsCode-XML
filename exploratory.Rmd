@@ -114,10 +114,11 @@ SportsCode features the `overlap(rowA,rowB)` function, which returns all instanc
 overlap(rowA,rowB) and rowA
 ```
 
-It would be nice to introduce this functionality to SportsCode.
+It would be nice to introduce this functionality to SportsCode. As of Feb. 2017, there is a known issue with `dplyr` and `S4` objects, whereby the incorrect results are returned when using certain verb-functions.[^3]
 
 
 
 ## Footnotes
 [^1]: Using the XPATH selector `.//code` looks for all child nodes, irrespective of the current branch. As such, it would locate nodes in both `<ROWS>` and `<ALL_INSTANCES>`. Furthermore, `./code` will only look in the current branch, necessitating us to navigate to `<ALL_INSTANCES>` anyway.
 [^2]: `xtrct` generates lists, which will become the columns. `map_dfc` creates the tibble column-wise, as opposed to row-wise.
+[^3]: See the corresponding GitHub issue [here](https://github.com/tidyverse/dplyr/issues/2432)
